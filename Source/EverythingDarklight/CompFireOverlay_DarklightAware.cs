@@ -4,15 +4,13 @@ using Verse;
 
 namespace EverythingDarklight;
 
-// Takes the place of vanilla CompFireOverlay and CompDarklightOverlay on every def (DarklightFireStartup swaps the
-// compClass, the props stay as they are). Draws the darklight flame while the building's light is darklight
-// (DarklightUtility.IsDarklight, the test the darklight precept uses) and the normal flame otherwise, so CompGlower's
-// darklight toggle switches the flames too. Without a glower it draws the flame its props class stands for.
 // Graphic_Flicker reads size and offset through CompFireOverlayBase, so both flames keep the def's fireSize/offset.
 public class CompFireOverlay_DarklightAware : CompFireOverlay
 {
     private CompGlower? glower;
 
+    // DarklightUtility.IsDarklight is the test the darklight precept uses. DarklightFireStartup only swaps the compClass,
+    // so without a glower the props class still tells which flame the def originally had.
     public bool ShowsDarklight => glower != null
         ? DarklightUtility.IsDarklight(glower.GlowColor.ToColor)
         : props is CompProperties_DarklightOverlay;
@@ -23,9 +21,9 @@ public class CompFireOverlay_DarklightAware : CompFireOverlay
         glower = parent.GetComp<CompGlower>();
     }
 
-    // CompFireOverlay.PostDraw with the graphic picked per frame. Both flames use parent.Rotation; vanilla's darklight
-    // overlay passes Rot4.North, which puts the flame of a rotated building (wall torch) at its north offset. The two
-    // only differ when the def has per-rotation offsets.
+    // Mirrors CompFireOverlay.PostDraw. Both flames use parent.Rotation because vanilla's darklight overlay passes
+    // Rot4.North, which puts the flame of a rotated building (wall torch) at its north offset when the def has
+    // per-rotation offsets.
     public override void PostDraw()
     {
         if (refuelableComp != null && !refuelableComp.HasFuel) return;

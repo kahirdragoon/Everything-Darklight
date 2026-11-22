@@ -7,11 +7,11 @@
     </supportedVersions>
     <description>Fire buildings can switch between a normal and a darklight flame.
 
-Torches, braziers, campfires and other fires that draw the vanilla flame get Ideology's darklight toggle, and their flame follows the light colour. The separate darklight versions of wood-burning fires (darktorch, darklight brazier, ...) are hidden from the architect menu, since the normal version can now be switched; buildings you already have keep working, and god mode still shows them. Darklight fires that burn something else, such as the fungus darktorch, stay buildable.
+Torches, braziers, campfires and other fires that draw the vanilla flame get Ideology's darklight toggle, and their flame follows the light colour. The separate darklight versions of wood-burning fires (darktorch, darklight brazier, ...) are hidden from the architect menu, since the normal version can now be switched.
 
 Fires whose flame comes from another mod's overlay are left alone.
 
-Dynamic Effects Forge: its particle flames follow the light too.</description>
+</description>
     <modDependencies>
         <li>
             <packageId>brrainz.harmony</packageId>

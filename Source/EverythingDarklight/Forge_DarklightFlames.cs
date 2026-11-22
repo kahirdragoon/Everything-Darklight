@@ -5,19 +5,13 @@ using Verse;
 
 namespace EverythingDarklight;
 
-// Dynamic Effects Forge (blues.forge, workshop 3735443951) replaces the vanilla fire overlays at startup
-// (ForgeInit.SwapFireOverlays, its "buildings" option, on by default): the vanilla comp becomes a silent subclass that
-// draws nothing, and an added CompProperties_ForgedEmitter runs the particle effect Flamme, or DarkFlamme for a
-// CompProperties_DarklightOverlay def. The effect is fixed per def. The light colour only reaches the flicker layer
-// (CompForgedEmitter.UpdateColorPalette feeds instructions marked isFlicker); the flame particles keep the effect's colours.
-// This makes the effect follow the light: CompForgedEffector.EffectDef answers DarkFlamme while the building's light is
-// darklight and Flamme otherwise, and CompForgedEffector.CheckStatus (every 40 ticks, from ActionManager.MapComponentTick,
-// so not while paused) stops a running effect that is the wrong one; Forge's CheckStatus then recreates it with EffectDef.
-// Only emitters running Flamme or DarkFlamme are touched (not FlammeWild on real fires, not other effectors).
-// The effects are matched by defName: Forge's DefReloader.ReloadBlastDefs (run when its mod settings window closes, and by
-// its debug "Reload Forge Defs" gizmo) clears DefDatabase<SingleTakeDef>, builds new instances and relinks the props by
-// name, while ForgeDefs keeps the old ones. Comparing instances made the switch stop after the settings window was opened.
-// Checked against the live BluesForge.dll on 2026-10-08. Everything is looked up by name, Forge is not referenced.
+// Dynamic Effects Forge (blues.forge, workshop 3735443951) replaces the vanilla fire overlays with a particle emitter
+// whose effect (Flamme, or DarkFlamme for a darklight def) is fixed per def. The light colour reaches only the flicker
+// layer, not the flame particles, so without this its flames would not switch with the darklight toggle.
+// Effects are matched by defName, not instance: Forge's DefReloader.ReloadBlastDefs (run when its mod settings window
+// closes, and by its debug "Reload Forge Defs" gizmo) rebuilds DefDatabase<SingleTakeDef> and relinks the props by name,
+// while ForgeDefs keeps the old instances. Comparing instances made the switch stop after the settings window was opened.
+// Everything is looked up by name so Forge stays optional. Checked against BluesForge.dll on 2026-10-08.
 internal static class Forge_DarklightFlames
 {
     private const string FlammeName = "Flamme";
@@ -26,31 +20,29 @@ internal static class Forge_DarklightFlames
     private static Type? emitterType;
     private static Type? emitterPropsType;
     private static Type? singleTakeDefType;
-    private static FieldInfo? propsEffectDef;     // CompProperties_ForgeEffector.effectDef
-    private static FieldInfo? activeRunner;       // CompForgedEffector.activeRunner
-    private static FieldInfo? runnerDef;          // EffectRunner.rDef
-    private static PropertyInfo? runnerDestroyed; // EffectRunner.IsDestroyed
-    private static MethodInfo? stopRunner;        // CompForgedEffector.StopRunner(Map)
+    private static FieldInfo? propsEffectDef;
+    private static FieldInfo? activeRunner;
+    private static FieldInfo? runnerDef;
+    private static PropertyInfo? runnerDestroyed;
+    private static MethodInfo? stopRunner;
 
-    // The instances currently in DefDatabase<SingleTakeDef>; refetched by Sync after a Forge reload.
     private static Def? flamme;
     private static Def? darkFlamme;
 
     public static bool Active { get; private set; }
 
-    // Forge swaps the overlays in ForgeInit's [StaticConstructorOnStartup] constructor. Running it here makes sure the swap
-    // is done before DarklightFireStartup replaces the vanilla overlays Forge left; it is a no-op once it has run.
+    // Forge swaps the overlays in ForgeInit's [StaticConstructorOnStartup] constructor, which may not have run yet.
+    // Running a class constructor that already ran is a no-op.
     public static void RunForgeInit()
     {
         Type? init = GenTypes.GetTypeInAnyAssembly("Blues.ForgeInit");
         if (init != null) RuntimeHelpers.RunClassConstructor(init.TypeHandle);
     }
 
-    // Returns null when Forge is not loaded or no longer matches.
-    public static string? TryApply(Harmony harmony)
+    public static void TryApply(Harmony harmony)
     {
         Type? effectorType = GenTypes.GetTypeInAnyAssembly("Blues.CompForgedEffector");
-        if (effectorType == null) return null;
+        if (effectorType == null) return;
 
         emitterType = GenTypes.GetTypeInAnyAssembly("Blues.CompForgedEmitter");
         emitterPropsType = GenTypes.GetTypeInAnyAssembly("Blues.CompProperties_ForgedEmitter");
@@ -60,7 +52,7 @@ internal static class Forge_DarklightFlames
         if (emitterType == null || emitterPropsType == null || singleTakeDefType == null || effectorPropsType == null || runnerType == null)
         {
             Log.Warning("[Everything Darklight] Dynamic Effects Forge types not found, its flames will not follow the light.");
-            return null;
+            return;
         }
 
         propsEffectDef = AccessTools.Field(effectorPropsType, "effectDef");
@@ -75,19 +67,18 @@ internal static class Forge_DarklightFlames
             || effectDefGetter == null || checkStatus == null || flamme == null || darkFlamme == null)
         {
             Log.Warning("[Everything Darklight] Dynamic Effects Forge members not found, its flames will not follow the light.");
-            return null;
+            return;
         }
 
         harmony.Patch(effectDefGetter, postfix: new HarmonyMethod(typeof(Forge_DarklightFlames), nameof(EffectDef_Postfix)));
         harmony.Patch(checkStatus, prefix: new HarmonyMethod(typeof(Forge_DarklightFlames), nameof(CheckStatus_Prefix)));
         Active = true;
-        return "Dynamic Effects Forge flames follow the light";
     }
 
-    // The def's flame is a Forge emitter running Flamme or DarkFlamme (Forge converted its vanilla overlay).
     public static bool HasSwitchableEmitter(ThingDef def) =>
         Active && def.comps.Any(p => p.GetType() == emitterPropsType && IsFlame(propsEffectDef!.GetValue(p)));
 
+    // Keeps FlammeWild on real fires and other effectors out of the switch.
     private static bool IsFlame(object? effect) => effect is Def d && (d.defName == FlammeName || d.defName == DarkFlammeName);
 
     private static void Refetch()
@@ -96,14 +87,12 @@ internal static class Forge_DarklightFlames
         darkFlamme = GenDefDatabase.GetDefSilentFail(singleTakeDefType!, DarkFlammeName, false);
     }
 
-    // `current` is the flame the emitter's props point at now. Forge relinks the props on a reload, so a current flame that
-    // is not one of the cached instances means the cache is stale.
+    // Forge relinks the props on a reload, so a props flame that is not one of the cached instances means the cache is stale.
     private static void Sync(Def current)
     {
         if (current != flamme && current != darkFlamme) Refetch();
     }
 
-    // Null when the building has no light to follow.
     private static Def? WantedFor(ThingComp comp, Def current)
     {
         CompGlower? glower = comp.parent?.GetComp<CompGlower>();
@@ -120,6 +109,8 @@ internal static class Forge_DarklightFlames
         if (wanted != null) __result = wanted;
     }
 
+    // Only stops a wrong runner: Forge's CheckStatus then starts the effect again from EffectDef. CheckStatus runs every
+    // 40 ticks from a MapComponentTick, so the flame does not switch while paused.
     private static void CheckStatus_Prefix(ThingComp __instance)
     {
         if (!emitterType!.IsInstanceOfType(__instance)) return;
